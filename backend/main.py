@@ -31,22 +31,22 @@ try:
     from transformers import BitsAndBytesConfig
     quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
 
-        controlnet = QwenImageControlNetModel.from_pretrained(
-            CONTROLNET_PATH, 
-            torch_dtype=torch.bfloat16
-        )
-        fast_pipe = QwenImageControlNetInpaintPipeline.from_pretrained(
-            QWEN_IMAGE_PATH,
-            controlnet=controlnet,
-            quantization_config=quantization_config,
-            torch_dtype=torch.bfloat16
-        )
-        # Load the lightning 4-steps LoRA
-        fast_pipe.load_lora_weights(LORA_PATH, weight_name="Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors")
-        
-        # When using 4-bit quantization, diffusers automatically handles device placement for the quantized models,
-        # but we still move the non-quantized parts (like ControlNet) to CUDA if necessary, 
-        # or use enable_model_cpu_offload() for extreme VRAM savings.
+    controlnet = QwenImageControlNetModel.from_pretrained(
+        CONTROLNET_PATH, 
+        torch_dtype=torch.bfloat16
+    )
+    fast_pipe = QwenImageControlNetInpaintPipeline.from_pretrained(
+        QWEN_IMAGE_PATH,
+        controlnet=controlnet,
+        quantization_config=quantization_config,
+        torch_dtype=torch.bfloat16
+    )
+    # Load the lightning 4-steps LoRA
+    fast_pipe.load_lora_weights(LORA_PATH, weight_name="Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors")
+    
+    # When using 4-bit quantization, diffusers automatically handles device placement for the quantized models,
+    # but we still move the non-quantized parts (like ControlNet) to CUDA if necessary, 
+    # or use enable_model_cpu_offload() for extreme VRAM savings.
     fast_pipe.enable_model_cpu_offload()
     
     print("Fast Model loaded successfully (4-bit Quantized)!")
