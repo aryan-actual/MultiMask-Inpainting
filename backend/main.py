@@ -6,8 +6,8 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from PIL import Image
-from diffusers import QwenImageEditInpaintPipeline
-from download_models import ensure_model_downloaded, MODEL_PATH
+from diffusers import QwenImageEditInpaintPipeline, QwenImageControlNetModel, QwenImageControlNetInpaintPipeline
+from download_models import ensure_model_downloaded, MODEL_PATH, QWEN_IMAGE_PATH, CONTROLNET_PATH, LORA_PATH
 
 app = FastAPI()
 
@@ -36,6 +36,27 @@ try:
 except Exception as e:
     print(f"Error loading model: {e}")
     pipe = None
+
+print("Setting up Qwen Image ControlNet Inpaint Pipeline (Fast/Lightning)...")
+try:
+    controlnet = QwenImageControlNetModel.from_pretrained(
+        CONTROLNET_PATH, 
+        torch_dtype=torch.bfloat16
+    )
+    fast_pipe = QwenImageControlNetInpaintPipeline.from_pretrained(
+        QWEN_IMAGE_PATH,
+        controlnet=controlnet,
+        torch_dtype=torch.bfloat16
+    )
+    # Load the lightning 4-steps LoRA
+    fast_pipe.load_lora_weights(LORA_PATH, weight_name="Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors")
+    
+    if torch.cuda.is_available():
+        fast_pipe.to("cuda")
+    print("Fast Model loaded successfully!")
+except Exception as e:
+    print(f"Error loading fast model: {e}")
+    fast_pipe = None
 
 @app.post("/inpaint")
 async def inpaint(
@@ -94,6 +115,64 @@ async def inpaint(
     
     except Exception as e:
         print(f"Inference error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/inpaint-fast")
+async def inpaint_fast(
+    image: UploadFile = File(...),
+    mask: UploadFile = File(...),
+    prompt: str = Form(...)
+):
+    if not fast_pipe:
+        raise HTTPException(status_code=503, detail="Fast Model not loaded")
+        
+    try:
+        image_data = await image.read()
+        mask_data = await mask.read()
+        
+        base_img = Image.open(io.BytesIO(image_data)).convert("RGB")
+        raw_mask = Image.open(io.BytesIO(mask_data)).convert("L")
+        
+        # Binarize mask
+        mask_array = np.array(raw_mask)
+        mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
+        mask_img = Image.fromarray(mask_array)
+        
+        max_size = 1024
+        if base_img.width > max_size or base_img.height > max_size:
+            base_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+        mask_img = mask_img.resize(base_img.size, Image.Resampling.NEAREST)
+
+        print(f"Running fast pipeline with prompt: '{prompt}'")
+        
+        # Save debug images
+        debug_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug_outputs")
+        os.makedirs(debug_dir, exist_ok=True)
+        base_img.save(os.path.join(debug_dir, "debug_input_image_fast.png"))
+        mask_img.save(os.path.join(debug_dir, "debug_input_mask_fast.png"))
+
+        # In diffusers QwenImageControlNetInpaintPipeline, it expects `control_image` and `control_mask`
+        out = fast_pipe(
+            prompt=prompt,
+            negative_prompt=" ",
+            control_image=base_img,
+            control_mask=mask_img,
+            width=base_img.width,
+            height=base_img.height,
+            num_inference_steps=4,       # Lightning 4-steps
+            true_cfg_scale=1.0,          # CFG is 1.0 for lightning models usually
+            controlnet_conditioning_scale=1.0
+        ).images[0]
+
+        img_byte_arr = io.BytesIO()
+        out.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
+
+        return Response(content=img_byte_arr, media_type="image/png")
+    
+    except Exception as e:
+        print(f"Fast Inference error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

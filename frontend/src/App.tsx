@@ -7,6 +7,7 @@ function App() {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [prompt, setPrompt] = useState<string>('');
   const [brushRadius, setBrushRadius] = useState<number>(20);
+  const [useFastModel, setUseFastModel] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [resultUrl, setResultUrl] = useState<string>('');
   const [imageSize, setImageSize] = useState<{width: number, height: number}>({width: 512, height: 512});
@@ -108,8 +109,8 @@ function App() {
       formData.append('mask', maskBlob, 'mask.png');
       formData.append('prompt', prompt);
 
-      // Assuming backend runs on 8000
-      const response = await axios.post('http://localhost:8000/inpaint', formData, {
+      const endpoint = useFastModel ? 'http://localhost:8000/inpaint-fast' : 'http://localhost:8000/inpaint';
+      const response = await axios.post(endpoint, formData, {
         responseType: 'blob'
       });
 
@@ -172,6 +173,19 @@ function App() {
                     rows={3}
                     placeholder="Describe what you want to generate in the masked area..."
                   />
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="checkbox" 
+                    id="fastMode" 
+                    checked={useFastModel} 
+                    onChange={(e) => setUseFastModel(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <label htmlFor="fastMode" className="text-sm font-medium text-gray-700">
+                    Use Fast Mode (ControlNet + Lightning 4-Steps)
+                  </label>
                 </div>
 
                 <button 
