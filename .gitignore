@@ -12,6 +12,7 @@ backend/.pytest_cache/
 
 # Models
 backend/models/
+backend/debug_outputs/
 
 # OS
 .DS_Store

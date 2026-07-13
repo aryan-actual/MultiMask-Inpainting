@@ -68,7 +68,15 @@ async def inpaint(
         # Use NEAREST to prevent creating gray pixels along the edges of the mask
         mask_img = mask_img.resize(base_img.size, Image.Resampling.NEAREST)
 
-        print(f"Running pipeline with prompt: {prompt}")
+        print(f"Running pipeline with prompt: '{prompt}'")
+        
+        # Save input images for debugging
+        debug_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug_outputs")
+        os.makedirs(debug_dir, exist_ok=True)
+        base_img.save(os.path.join(debug_dir, "debug_input_image.png"))
+        mask_img.save(os.path.join(debug_dir, "debug_input_mask.png"))
+        print(f"Saved debug images to {debug_dir}")
+
         out = pipe(
             prompt=prompt,
             image=base_img,
