@@ -82,7 +82,8 @@ async def inpaint(
             image=base_img,
             mask_image=mask_img,
             num_inference_steps=25,
-            guidance_scale=7.0
+            guidance_scale=7.0,
+            strength=1.0  # Force it to modify the masked area fully
         ).images[0]
 
         img_byte_arr = io.BytesIO()
