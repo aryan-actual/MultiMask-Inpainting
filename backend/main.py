@@ -27,13 +27,8 @@ pipe = None
 
 print("Setting up Qwen Image ControlNet Inpaint Pipeline (Fast/Lightning)...")
 try:
-    # Load the base model with bitsandbytes 4-bit quantization to save massive VRAM
-    from diffusers import PipelineQuantizationConfig
-    quantization_config = PipelineQuantizationConfig(
-        quant_backend="bitsandbytes_4bit",
-        quant_kwargs={"bnb_4bit_compute_dtype": torch.bfloat16}
-    )
-
+    # Load the base model in native bfloat16 (without 4-bit which destroys DiT generation quality)
+    # We will rely entirely on enable_model_cpu_offload() to manage VRAM instead.
     controlnet = QwenImageControlNetModel.from_pretrained(
         CONTROLNET_PATH, 
         torch_dtype=torch.bfloat16
@@ -41,7 +36,6 @@ try:
     fast_pipe = QwenImageControlNetInpaintPipeline.from_pretrained(
         QWEN_IMAGE_PATH,
         controlnet=controlnet,
-        quantization_config=quantization_config,
         torch_dtype=torch.bfloat16
     )
     # Load the lightning 4-steps LoRA
@@ -97,8 +91,14 @@ async def inpaint(
         if base_img.width > max_size or base_img.height > max_size:
             base_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             
+        # Ensure width and height are perfectly divisible by 16 for the VAE/Transformer
+        w, h = base_img.size
+        w = (w // 16) * 16
+        h = (h // 16) * 16
+        base_img = base_img.resize((w, h), Image.Resampling.LANCZOS)
+        
         # Use NEAREST to prevent creating gray pixels along the edges of the mask
-        mask_img = mask_img.resize(base_img.size, Image.Resampling.NEAREST)
+        mask_img = mask_img.resize((w, h), Image.Resampling.NEAREST)
 
         print(f"Running pipeline with prompt: '{prompt}'")
         
