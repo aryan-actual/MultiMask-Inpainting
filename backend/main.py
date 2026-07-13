@@ -1,6 +1,7 @@
 import io
 import os
 import torch
+import numpy as np
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -51,16 +52,21 @@ async def inpaint(
         
         base_img = Image.open(io.BytesIO(image_data)).convert("RGB")
         
-        # Diffusers typically expects mask to be single channel (L) or RGB. Let's convert to L to be safe,
-        # where white is the area to inpaint.
-        mask_img = Image.open(io.BytesIO(mask_data)).convert("L")
+        # Open mask, convert to grayscale
+        raw_mask = Image.open(io.BytesIO(mask_data)).convert("L")
+        
+        # Ensure mask is purely binary (0 or 255) where white > 128 is the drawn area
+        mask_array = np.array(raw_mask)
+        mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
+        mask_img = Image.fromarray(mask_array)
         
         # Resize to max 1024 or 512 for memory efficiency, maintaining aspect ratio
         max_size = 1024
         if base_img.width > max_size or base_img.height > max_size:
             base_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             
-        mask_img = mask_img.resize(base_img.size, Image.Resampling.LANCZOS)
+        # Use NEAREST to prevent creating gray pixels along the edges of the mask
+        mask_img = mask_img.resize(base_img.size, Image.Resampling.NEAREST)
 
         print(f"Running pipeline with prompt: {prompt}")
         out = pipe(
