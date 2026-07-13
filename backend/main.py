@@ -44,19 +44,19 @@ try:
         quantization_config=quantization_config,
         torch_dtype=torch.bfloat16
     )
-        # Load the lightning 4-steps LoRA
-        fast_pipe.load_lora_weights(LORA_PATH, weight_name="Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors")
-        
-        # The Lightning LoRA requires an AuraFlow-like shift=3.0 without dynamic shifting
-        from diffusers import FlowMatchEulerDiscreteScheduler
-        fast_pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
-            QWEN_IMAGE_PATH,
-            subfolder="scheduler",
-            shift=3.0,
-            use_dynamic_shifting=False
-        )
+    # Load the lightning 4-steps LoRA
+    fast_pipe.load_lora_weights(LORA_PATH, weight_name="Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors")
+    
+    # The Lightning LoRA requires an AuraFlow-like shift=3.0 without dynamic shifting
+    from diffusers import FlowMatchEulerDiscreteScheduler
+    fast_pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+        QWEN_IMAGE_PATH,
+        subfolder="scheduler",
+        shift=3.0,
+        use_dynamic_shifting=False
+    )
 
-        # When using 4-bit quantization, diffusers automatically handles device placement for the quantized models,
+    # When using 4-bit quantization, diffusers automatically handles device placement for the quantized models,
     # but we still move the non-quantized parts (like ControlNet) to CUDA if necessary, 
     # or use enable_model_cpu_offload() for extreme VRAM savings.
     fast_pipe.enable_model_cpu_offload()
