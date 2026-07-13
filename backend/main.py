@@ -1,7 +1,7 @@
 import io
 import os
 import torch
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from PIL import Image
@@ -43,7 +43,7 @@ async def inpaint(
     prompt: str = Form(...)
 ):
     if not pipe:
-        return {"error": "Model not loaded"}
+        raise HTTPException(status_code=503, detail="Model not loaded")
         
     try:
         image_data = await image.read()
@@ -79,7 +79,7 @@ async def inpaint(
     
     except Exception as e:
         print(f"Inference error: {e}")
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

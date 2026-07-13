@@ -94,9 +94,10 @@ function App() {
 
       const outUrl = URL.createObjectURL(response.data);
       setResultUrl(outUrl);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Error generating image.");
+      const errorMsg = err.response?.data?.detail || "Error generating image.";
+      alert(`Error: ${errorMsg}`);
     } finally {
       setIsLoading(false);
     }
