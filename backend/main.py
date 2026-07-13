@@ -27,7 +27,7 @@ try:
     # The official repo might suggest bfloat16
     pipe = QwenImageEditInpaintPipeline.from_pretrained(
         MODEL_PATH, 
-        torch_dtype=torch.float16
+        torch_dtype=torch.bfloat16
     )
     if torch.cuda.is_available():
         pipe.to("cuda")
