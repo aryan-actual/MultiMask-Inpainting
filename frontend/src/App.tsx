@@ -45,7 +45,9 @@ function App() {
     // Get the drawing as data URL (it has transparent background)
     // Wait, the types don't officially expose getDataURL without arguments sometimes, but we can access the underlying canvas.
     // @ts-ignore
-    const drawingDataUrl = canvasRef.current.getDataURL('image/png', false, '#00000000');
+    // react-canvas-draw's getDataURL doesn't always preserve pure transparency or exact stroke thickness over custom backgrounds properly
+    // It's safer to extract it and force binary coloring on the frontend before sending
+    const drawingDataUrl = canvasRef.current.getDataURL('png', false, '#000000');
     
     return new Promise((resolve) => {
       const img = new Image();
@@ -60,8 +62,27 @@ function App() {
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw the strokes. They are white (from brushColor)
+        // Draw the strokes (which will have whatever color they had in getDataURL)
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        // Force to strictly binary white and black pixels based on drawn strokes
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          // If the pixel is not purely black (R>0, G>0, or B>0), force it to pure white
+          if (data[i] > 10 || data[i+1] > 10 || data[i+2] > 10) {
+            data[i] = 255;     // R
+            data[i+1] = 255;   // G
+            data[i+2] = 255;   // B
+            data[i+3] = 255;   // Alpha
+          } else {
+            data[i] = 0;
+            data[i+1] = 0;
+            data[i+2] = 0;
+            data[i+3] = 255;
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
 
         canvas.toBlob((blob) => {
           resolve(blob);
