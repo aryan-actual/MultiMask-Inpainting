@@ -55,7 +55,10 @@ try:
         fast_pipe.to("cuda")
     print("Fast Model loaded successfully!")
 except Exception as e:
-    print(f"Error loading fast model: {e}")
+    import traceback
+    print("=== FAST MODEL LOAD ERROR ===")
+    traceback.print_exc()
+    print("=============================")
     fast_pipe = None
 
 @app.post("/inpaint")
