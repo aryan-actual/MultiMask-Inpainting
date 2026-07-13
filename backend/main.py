@@ -22,39 +22,35 @@ app.add_middleware(
 # Ensure the model is downloaded before trying to load it
 ensure_model_downloaded()
 
-print("Setting up Qwen Image Edit Inpaint Pipeline...")
-try:
-    # Use bfloat16 or float16 based on what your GPU supports
-    # The official repo might suggest bfloat16
-    pipe = QwenImageEditInpaintPipeline.from_pretrained(
-        MODEL_PATH, 
-        torch_dtype=torch.bfloat16
-    )
-    if torch.cuda.is_available():
-        pipe.to("cuda")
-    print("Model loaded successfully!")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    pipe = None
+# We only load the FAST pipeline to save VRAM and skip loading the standard 2511 pipeline.
+pipe = None
 
 print("Setting up Qwen Image ControlNet Inpaint Pipeline (Fast/Lightning)...")
-try:
-    controlnet = QwenImageControlNetModel.from_pretrained(
-        CONTROLNET_PATH, 
-        torch_dtype=torch.bfloat16
-    )
-    fast_pipe = QwenImageControlNetInpaintPipeline.from_pretrained(
-        QWEN_IMAGE_PATH,
-        controlnet=controlnet,
-        torch_dtype=torch.bfloat16
-    )
-    # Load the lightning 4-steps LoRA
-    fast_pipe.load_lora_weights(LORA_PATH, weight_name="Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors")
-    
-    if torch.cuda.is_available():
-        fast_pipe.to("cuda")
-    print("Fast Model loaded successfully!")
-except Exception as e:
+    try:
+        # Load the base model with bitsandbytes 4-bit quantization to save massive VRAM
+        from transformers import BitsAndBytesConfig
+        quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
+
+        controlnet = QwenImageControlNetModel.from_pretrained(
+            CONTROLNET_PATH, 
+            torch_dtype=torch.bfloat16
+        )
+        fast_pipe = QwenImageControlNetInpaintPipeline.from_pretrained(
+            QWEN_IMAGE_PATH,
+            controlnet=controlnet,
+            quantization_config=quantization_config,
+            torch_dtype=torch.bfloat16
+        )
+        # Load the lightning 4-steps LoRA
+        fast_pipe.load_lora_weights(LORA_PATH, weight_name="Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors")
+        
+        # When using 4-bit quantization, diffusers automatically handles device placement for the quantized models,
+        # but we still move the non-quantized parts (like ControlNet) to CUDA if necessary, 
+        # or use enable_model_cpu_offload() for extreme VRAM savings.
+        fast_pipe.enable_model_cpu_offload()
+        
+        print("Fast Model loaded successfully (4-bit Quantized)!")
+    except Exception as e:
     import traceback
     print("=== FAST MODEL LOAD ERROR ===")
     traceback.print_exc()
