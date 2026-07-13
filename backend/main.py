@@ -26,10 +26,10 @@ ensure_model_downloaded()
 pipe = None
 
 print("Setting up Qwen Image ControlNet Inpaint Pipeline (Fast/Lightning)...")
-    try:
-        # Load the base model with bitsandbytes 4-bit quantization to save massive VRAM
-        from transformers import BitsAndBytesConfig
-        quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
+try:
+    # Load the base model with bitsandbytes 4-bit quantization to save massive VRAM
+    from transformers import BitsAndBytesConfig
+    quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
 
         controlnet = QwenImageControlNetModel.from_pretrained(
             CONTROLNET_PATH, 
@@ -47,10 +47,10 @@ print("Setting up Qwen Image ControlNet Inpaint Pipeline (Fast/Lightning)...")
         # When using 4-bit quantization, diffusers automatically handles device placement for the quantized models,
         # but we still move the non-quantized parts (like ControlNet) to CUDA if necessary, 
         # or use enable_model_cpu_offload() for extreme VRAM savings.
-        fast_pipe.enable_model_cpu_offload()
-        
-        print("Fast Model loaded successfully (4-bit Quantized)!")
-    except Exception as e:
+    fast_pipe.enable_model_cpu_offload()
+    
+    print("Fast Model loaded successfully (4-bit Quantized)!")
+except Exception as e:
     import traceback
     print("=== FAST MODEL LOAD ERROR ===")
     traceback.print_exc()
