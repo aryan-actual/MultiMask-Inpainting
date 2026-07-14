@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1
 # Install system dependencies required for building Python packages (like triton, numpy, PIL)
 RUN apt-get update && apt-get install -y \
     build-essential \
-    python3.12-dev \
+    python3-dev \
     git \
     wget \
     curl \
