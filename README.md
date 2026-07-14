@@ -70,7 +70,7 @@ nvm use 22
 
 ---
 
-## 💡 How to Use
+## 💡 How to Use (UI)
 
 1. Open your web browser and navigate to `http://<YOUR_SERVER_IP>:5173`.
 2. **Upload an Image** using the file picker.
@@ -78,3 +78,75 @@ nvm use 22
 4. Type a **Prompt** describing what should appear in the masked area (e.g., *"A pile of vintage books"*).
 5. Ensure **"Use Fast Mode (ControlNet + Lightning 4-Steps)"** is checked (it is checked by default).
 6. Click **Generate Edit**. In just a few seconds, the model will seamlessly composite the new generated object into your original image!
+
+---
+
+## 📡 API Documentation
+
+You can also use the backend purely as an API. The FastAPI server exposes endpoints that accept `multipart/form-data`.
+
+### 1. Fast Multi-Mask Inpainting (`/inpaint-fast-multi`)
+**Method:** `POST`
+
+This is the primary and highly optimized endpoint. It accepts a base image and a list of masks and corresponding prompts, and applies them sequentially.
+
+**Parameters (multipart/form-data):**
+*   `image`: The base image file (e.g., JPEG, PNG).
+*   `masks`: A list/array of image files representing the masks. Masks should be grayscale/binary images where white pixels represent the area to be inpainted.
+*   `prompts`: A list/array of string prompts corresponding to each mask.
+
+**Python Requests Example:**
+```python
+import requests
+
+url = "http://localhost:8000/inpaint-fast-multi"
+
+files = [
+    ('image', ('base.png', open('base.png', 'rb'), 'image/png')),
+    ('masks', ('mask1.png', open('mask1.png', 'rb'), 'image/png')),
+    ('masks', ('mask2.png', open('mask2.png', 'rb'), 'image/png'))
+]
+
+data = [
+    ('prompts', 'A fluffy cat'),
+    ('prompts', 'A modern red couch')
+]
+
+response = requests.post(url, files=files, data=data)
+
+if response.status_code == 200:
+    with open("result.png", "wb") as f:
+        f.write(response.content)
+    print("Image saved to result.png")
+```
+
+### 2. Fast Single Inpainting (`/inpaint-fast`)
+**Method:** `POST`
+
+A simpler version of the fast endpoint that only accepts one mask and one prompt.
+
+**Parameters (multipart/form-data):**
+*   `image`: The base image file.
+*   `mask`: The mask image file.
+*   `prompt`: A single string prompt.
+
+**Python Requests Example:**
+```python
+import requests
+
+url = "http://localhost:8000/inpaint-fast"
+files = {
+    'image': open('base.png', 'rb'),
+    'mask': open('mask.png', 'rb')
+}
+data = {'prompt': 'A fluffy cat'}
+
+response = requests.post(url, files=files, data=data)
+```
+
+### 3. Standard Quality Inpainting (`/inpaint`)
+**Method:** `POST`
+
+This endpoint uses the full 25-step generation process instead of the 4-step Lightning mode. Note: *This pipeline is disabled by default in `main.py` to save VRAM. You must modify `main.py` to load the standard pipe if you wish to use it.*
+
+**Parameters:** Same as `/inpaint-fast`.
