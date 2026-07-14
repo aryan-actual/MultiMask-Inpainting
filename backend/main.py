@@ -146,23 +146,17 @@ async def inpaint_fast(
         base_img = Image.open(io.BytesIO(image_data)).convert("RGB")
         raw_mask = Image.open(io.BytesIO(mask_data)).convert("L")
         
-        # Binarize mask
-        mask_array = np.array(raw_mask)
-        mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
-        mask_img = Image.fromarray(mask_array)
-        
-        max_size = 1024
-        if base_img.width > max_size or base_img.height > max_size:
-            base_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            # Binarize mask
+            mask_array = np.array(raw_mask)
+            mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
+            mask_img = Image.fromarray(mask_array)
+            mask_img = mask_img.resize(base_img.size, Image.Resampling.NEAREST)
             
-        w, h = base_img.size
-        w = (w // 16) * 16
-        h = (h // 16) * 16
-        base_img = base_img.resize((w, h), Image.Resampling.LANCZOS)
-            
-        mask_img = mask_img.resize(base_img.size, Image.Resampling.NEAREST)
+            # Feather the mask slightly to help the VAE blend the edges (Differential Diffusion principle)
+            from PIL import ImageFilter
+            mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=3))
 
-        print(f"Running fast pipeline with prompt: '{prompt}'")
+            print(f"Running fast pipeline with prompt: '{prompt}'")
         
         # Save debug images
         debug_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug_outputs")
@@ -171,18 +165,21 @@ async def inpaint_fast(
         mask_img.save(os.path.join(debug_dir, "debug_input_mask_fast.png"))
 
         # In diffusers QwenImageControlNetInpaintPipeline, it expects `control_image` and `control_mask`
-        out = fast_pipe(
-            prompt=prompt,
-            negative_prompt=" ",
-            control_image=base_img,
-            control_mask=mask_img,
-            width=base_img.width,
-            height=base_img.height,
-            num_inference_steps=4,       # Lightning 4-steps
-            guidance_scale=1.0,          # Disable CFG
-            true_cfg_scale=1.0,          # Disable true CFG
-            controlnet_conditioning_scale=1.0
-        ).images[0]
+            out = fast_pipe(
+                prompt=prompt,
+                negative_prompt=" ",
+                image=base_img,
+                mask_image=mask_img,
+                control_image=base_img,
+                control_mask=mask_img,
+                width=base_img.width,
+                height=base_img.height,
+                num_inference_steps=4,       # Lightning 4-steps
+                guidance_scale=1.0,          # Disable CFG
+                true_cfg_scale=1.0,          # Disable true CFG
+                controlnet_conditioning_scale=1.0,
+                strength=0.99                # Denoise strength slightly < 1.0 to help blending
+            ).images[0]
 
         # Composite the generated inpaint area seamlessly back over the original image
         # This matches ComfyUI's ImageCompositeMasked behavior exactly.
@@ -237,6 +234,10 @@ async def inpaint_fast_multi(
             mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
             mask_img = Image.fromarray(mask_array)
             mask_img = mask_img.resize(current_image.size, Image.Resampling.NEAREST)
+            
+            # Feather the mask slightly to help the VAE blend the edges (Differential Diffusion principle)
+            from PIL import ImageFilter
+            mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=3))
 
             print(f"Running multi-fast pipeline step {idx+1}/{len(masks)} with prompt: '{prompt}'")
             mask_img.save(os.path.join(debug_dir, f"debug_multi_mask_{idx}.png"))
@@ -244,6 +245,8 @@ async def inpaint_fast_multi(
             out = fast_pipe(
                 prompt=prompt,
                 negative_prompt=" ",
+                image=current_image,
+                mask_image=mask_img,
                 control_image=current_image,
                 control_mask=mask_img,
                 width=current_image.width,
@@ -251,7 +254,8 @@ async def inpaint_fast_multi(
                 num_inference_steps=4,       # Lightning 4-steps
                 guidance_scale=1.0,          # Disable CFG
                 true_cfg_scale=1.0,          # Disable true CFG
-                controlnet_conditioning_scale=1.0
+                controlnet_conditioning_scale=1.0,
+                strength=0.99                # Denoise strength slightly < 1.0 to help blending
             ).images[0]
 
             # Composite the generated inpaint area seamlessly back over the current image
