@@ -20,6 +20,8 @@ function App() {
   const [resultUrl, setResultUrl] = useState<string>('');
   const [imageSize, setImageSize] = useState<{width: number, height: number}>({width: 512, height: 512});
 
+  const MASK_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7"];
+
   // We support up to 5 steps, so we pre-create 5 refs
   const canvasRefs = useRef((Array(5).fill(0).map(() => createRef<CanvasDraw>())));
 
@@ -37,9 +39,10 @@ function App() {
       const img = new Image();
       img.onload = () => {
         let { width, height } = img;
-        const maxDim = 800;
-        if (width > maxDim || height > maxDim) {
-          const ratio = Math.min(maxDim / width, maxDim / height);
+        const maxWidth = 450;
+        const maxHeight = 500;
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
           width = width * ratio;
           height = height * ratio;
         }
@@ -167,7 +170,7 @@ function App() {
       setResultUrl(outUrl);
     } catch (err: any) {
       console.error(err);
-      const errorMsg = err.response?.data?.detail || "Error generating image.";
+      const errorMsg = err.response?.data?.detail || err.message || "Error generating image.";
       alert(`Error: ${errorMsg}`);
     } finally {
       setIsLoading(false);
@@ -205,7 +208,11 @@ function App() {
                         onClick={() => setActiveStepIndex(index)}
                       >
                         <div className="flex justify-between items-center mb-2">
-                          <label className="text-sm font-semibold text-gray-800">
+                          <label className="text-sm font-semibold text-gray-800 flex items-center">
+                            <span 
+                              className="w-3 h-3 rounded-full mr-2 inline-block" 
+                              style={{ backgroundColor: MASK_COLORS[index % MASK_COLORS.length] }}
+                            ></span>
                             Prompt for Mask {index + 1}
                           </label>
                           {index === activeStepIndex && (
@@ -305,14 +312,16 @@ function App() {
                   style={{ width: imageSize.width, height: imageSize.height }}
                 />
                 
-                {/* Render up to 5 stacked canvases, but only show the active one */}
+                {/* Render up to 5 stacked canvases, show all of them but only active one accepts drawing */}
                 {steps.map((step, index) => (
                   <div 
                     key={step.id}
-                    className="absolute top-0 left-0 opacity-70"
+                    className="absolute top-0 left-0"
                     style={{ 
-                      display: index === activeStepIndex ? 'block' : 'none',
-                      zIndex: index === activeStepIndex ? 10 : 0
+                      display: 'block',
+                      opacity: index === activeStepIndex ? 0.8 : 0.4,
+                      zIndex: index === activeStepIndex ? 10 : index,
+                      pointerEvents: index === activeStepIndex ? 'auto' : 'none'
                     }}
                   >
                     <CanvasDraw
@@ -321,7 +330,7 @@ function App() {
                       canvasHeight={imageSize.height}
                       brushRadius={brushRadius}
                       lazyRadius={0}
-                      brushColor="#ffffff"
+                      brushColor={MASK_COLORS[index % MASK_COLORS.length]}
                       hideGrid={true}
                       backgroundColor="transparent"
                     />
