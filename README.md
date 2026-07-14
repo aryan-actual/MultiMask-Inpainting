@@ -15,7 +15,21 @@ To run this application, you need a machine (preferably a Linux GPU server) with
 
 ---
 
-## 🛠️ 1. Backend Setup (FastAPI + PyTorch)
+## 🐳 Docker Deployment (Full Stack)
+
+The easiest way to run the entire application (both frontend and backend) is using Docker Compose. This automatically builds the frontend and backend, networks them together, and mounts your models directory.
+
+1. Install [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/).
+2. Run the following command from the root of the repository:
+   ```bash
+   docker compose up --build
+   ```
+3. Open your web browser and navigate to `http://localhost:5173`. 
+*(Note: The frontend will automatically route requests to the backend server running on port `8000` via your browser).*
+
+---
+
+## 🛠️ 1. Backend Setup (Local/Manual)
 
 The backend handles model downloading, image masking, and inference using the `diffusers` library.
 
@@ -38,8 +52,8 @@ The backend handles model downloading, image masking, and inference using the `d
    ```
    *Note: On the very first run, this will automatically trigger the downloading of the base Qwen model, the ControlNet, and the Lightning LoRA into the `backend/models/` folder. This might take a while depending on your internet connection (approx. 20GB).*
 
-### Option B: Docker Setup
-If you prefer not to manage Python dependencies directly on your host machine, you can run the backend via Docker. (Note: The downloaded models will be mapped to a local folder to avoid re-downloading inside the container).
+### Option B: Docker Setup (Backend Only)
+If you prefer to only run the backend via Docker:
 
 1. Open a terminal and navigate to the backend directory:
    ```bash
@@ -56,7 +70,7 @@ If you prefer not to manage Python dependencies directly on your host machine, y
 
 ---
 
-## 🎨 2. Frontend Setup (React + Vite)
+## 🎨 2. Frontend Setup (Local/Manual)
 
 The frontend provides the drawing canvas for users to mask objects effortlessly. Node v22 or higher is required. We recommend using `nvm` (Node Version Manager) to install it:
 

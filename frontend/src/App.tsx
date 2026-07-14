@@ -146,9 +146,10 @@ function App() {
       // If useFastModel and multiple steps -> inpaint-fast-multi
       // If useFastModel and single step -> inpaint-fast-multi works fine too.
       // If not fast model, we should warn if multiple steps. For now, backend only supports fast multi.
-      let endpoint = 'http://localhost:8000/inpaint';
+      const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`;
+      let endpoint = `${API_BASE}/inpaint`;
       if (useFastModel) {
-        endpoint = 'http://localhost:8000/inpaint-fast-multi';
+        endpoint = `${API_BASE}/inpaint-fast-multi`;
       } else if (steps.length > 1) {
         alert("Multi-mask is currently only supported in Fast Mode. Please check 'Use Fast Mode'.");
         setIsLoading(false);
