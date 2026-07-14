@@ -38,6 +38,22 @@ The backend handles model downloading, image masking, and inference using the `d
    ```
    *Note: On the very first run, this will automatically trigger the downloading of the base Qwen model, the ControlNet, and the Lightning LoRA into the `backend/models/` folder. This might take a while depending on your internet connection (approx. 20GB).*
 
+### Option B: Docker Setup
+If you prefer not to manage Python dependencies directly on your host machine, you can run the backend via Docker. (Note: The downloaded models will be mapped to a local folder to avoid re-downloading inside the container).
+
+1. Open a terminal and navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
+2. Build the Docker image:
+   ```bash
+   docker build -t qwen-inpainting-backend .
+   ```
+3. Run the container with GPU support, mapping port `8000` and mounting the `models` directory:
+   ```bash
+   docker run --gpus all -p 8000:8000 -v $(pwd)/models:/app/models qwen-inpainting-backend
+   ```
+
 ---
 
 ## 🎨 2. Frontend Setup (React + Vite)
