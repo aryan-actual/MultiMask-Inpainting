@@ -10,7 +10,7 @@ This repository features a highly optimized backend utilizing the **InstantX Qwe
 
 To run this application, you need a machine (preferably a Linux GPU server) with the following:
 *   **GPU:** An NVIDIA GPU (e.g., RTX 3090, 4090, A100, L40S). The backend leverages PyTorch `enable_model_cpu_offload()` to prevent Out-Of-Memory errors.
-*   **Python:** v3.10 or higher.
+*   **Python:** v3.10 or higher. You will also need Python development headers to compile dependencies like `triton`. (e.g., run `sudo apt install python3-dev` or `sudo apt install python3.12-dev` on Ubuntu/Debian).
 *   **Node.js:** v22 or higher (Node 22 is required to prevent Vite `node:util` styleText errors).
 
 ---
@@ -42,7 +42,17 @@ The backend handles model downloading, image masking, and inference using the `d
 
 ## 🎨 2. Frontend Setup (React + Vite)
 
-The frontend provides the drawing canvas for users to mask objects effortlessly.
+The frontend provides the drawing canvas for users to mask objects effortlessly. Node v22 or higher is required. We recommend using `nvm` (Node Version Manager) to install it:
+
+```bash
+# Install nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+source ~/.bashrc  # Or restart your terminal
+
+# Install and use Node 22
+nvm install 22
+nvm use 22
+```
 
 1. Open a **new** terminal session and navigate to the frontend directory:
    ```bash

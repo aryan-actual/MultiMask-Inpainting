@@ -63,6 +63,8 @@ except Exception as e:
     print("=============================")
     fast_pipe = None
 
+from typing import List
+
 @app.post("/inpaint")
 async def inpaint(
     image: UploadFile = File(...),
@@ -153,6 +155,11 @@ async def inpaint_fast(
         if base_img.width > max_size or base_img.height > max_size:
             base_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             
+        w, h = base_img.size
+        w = (w // 16) * 16
+        h = (h // 16) * 16
+        base_img = base_img.resize((w, h), Image.Resampling.LANCZOS)
+            
         mask_img = mask_img.resize(base_img.size, Image.Resampling.NEAREST)
 
         print(f"Running fast pipeline with prompt: '{prompt}'")
@@ -191,6 +198,75 @@ async def inpaint_fast(
     
     except Exception as e:
         print(f"Fast Inference error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/inpaint-fast-multi")
+async def inpaint_fast_multi(
+    image: UploadFile = File(...),
+    masks: List[UploadFile] = File(...),
+    prompts: List[str] = Form(...)
+):
+    if not fast_pipe:
+        raise HTTPException(status_code=503, detail="Fast Model not loaded")
+        
+    try:
+        image_data = await image.read()
+        base_img = Image.open(io.BytesIO(image_data)).convert("RGB")
+        
+        max_size = 1024
+        if base_img.width > max_size or base_img.height > max_size:
+            base_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+        w, h = base_img.size
+        w = (w // 16) * 16
+        h = (h // 16) * 16
+        base_img = base_img.resize((w, h), Image.Resampling.LANCZOS)
+
+        current_image = base_img
+        
+        debug_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug_outputs")
+        os.makedirs(debug_dir, exist_ok=True)
+        current_image.save(os.path.join(debug_dir, "debug_multi_input_image.png"))
+
+        for idx, (mask_file, prompt) in enumerate(zip(masks, prompts)):
+            mask_data = await mask_file.read()
+            raw_mask = Image.open(io.BytesIO(mask_data)).convert("L")
+            
+            # Binarize mask
+            mask_array = np.array(raw_mask)
+            mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
+            mask_img = Image.fromarray(mask_array)
+            mask_img = mask_img.resize(current_image.size, Image.Resampling.NEAREST)
+
+            print(f"Running multi-fast pipeline step {idx+1}/{len(masks)} with prompt: '{prompt}'")
+            mask_img.save(os.path.join(debug_dir, f"debug_multi_mask_{idx}.png"))
+
+            out = fast_pipe(
+                prompt=prompt,
+                negative_prompt=" ",
+                control_image=current_image,
+                control_mask=mask_img,
+                width=current_image.width,
+                height=current_image.height,
+                num_inference_steps=4,       # Lightning 4-steps
+                guidance_scale=1.0,          # Disable CFG
+                true_cfg_scale=1.0,          # Disable true CFG
+                controlnet_conditioning_scale=1.0
+            ).images[0]
+
+            # Composite the generated inpaint area seamlessly back over the current image
+            out = out.resize(current_image.size, Image.Resampling.LANCZOS)
+            mask_composite = mask_img.resize(current_image.size, Image.Resampling.LANCZOS).convert("L")
+            current_image = Image.composite(out, current_image, mask_composite)
+
+        img_byte_arr = io.BytesIO()
+        current_image.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
+
+        return Response(content=img_byte_arr, media_type="image/png")
+    
+    except Exception as e:
+        print(f"Fast Multi Inference error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

@@ -1,18 +1,27 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, createRef } from 'react';
 import CanvasDraw from 'react-canvas-draw';
 import axios from 'axios';
+
+interface Step {
+  id: number;
+  prompt: string;
+}
 
 function App() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string>('');
-  const [prompt, setPrompt] = useState<string>('');
+  
+  const [steps, setSteps] = useState<Step[]>([{ id: Date.now(), prompt: '' }]);
+  const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
+  
   const [brushRadius, setBrushRadius] = useState<number>(20);
   const [useFastModel, setUseFastModel] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [resultUrl, setResultUrl] = useState<string>('');
   const [imageSize, setImageSize] = useState<{width: number, height: number}>({width: 512, height: 512});
 
-  const canvasRef = useRef<CanvasDraw | null>(null);
+  // We support up to 5 steps, so we pre-create 5 refs
+  const canvasRefs = useRef((Array(5).fill(0).map(() => createRef<CanvasDraw>())));
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -21,11 +30,12 @@ function App() {
       const url = URL.createObjectURL(file);
       setImageUrl(url);
       setResultUrl('');
+      setSteps([{ id: Date.now(), prompt: '' }]);
+      setActiveStepIndex(0);
 
       // Get image dimensions to size the canvas
       const img = new Image();
       img.onload = () => {
-        // Limit max width/height to 512 or reasonable size for UI
         let { width, height } = img;
         const maxDim = 800;
         if (width > maxDim || height > maxDim) {
@@ -39,15 +49,32 @@ function App() {
     }
   };
 
-  // Helper to convert transparent canvas to black/white mask
-  const generateMask = async (): Promise<Blob | null> => {
+  const handleAddStep = () => {
+    if (steps.length >= 5) return;
+    setSteps([...steps, { id: Date.now(), prompt: '' }]);
+    setActiveStepIndex(steps.length);
+  };
+
+  const handleRemoveStep = (indexToRemove: number) => {
+    if (steps.length <= 1) return;
+    const newSteps = steps.filter((_, i) => i !== indexToRemove);
+    setSteps(newSteps);
+    if (activeStepIndex >= newSteps.length) {
+      setActiveStepIndex(newSteps.length - 1);
+    }
+  };
+
+  const handlePromptChange = (index: number, val: string) => {
+    const newSteps = [...steps];
+    newSteps[index].prompt = val;
+    setSteps(newSteps);
+  };
+
+  const generateMask = async (index: number): Promise<Blob | null> => {
+    const canvasRef = canvasRefs.current[index];
     if (!canvasRef.current) return null;
     
-    // Get the drawing as data URL (it has transparent background)
-    // Wait, the types don't officially expose getDataURL without arguments sometimes, but we can access the underlying canvas.
     // @ts-ignore
-    // react-canvas-draw's getDataURL doesn't always preserve pure transparency or exact stroke thickness over custom backgrounds properly
-    // It's safer to extract it and force binary coloring on the frontend before sending
     const drawingDataUrl = canvasRef.current.getDataURL('png', false, '#000000');
     
     return new Promise((resolve) => {
@@ -59,23 +86,18 @@ function App() {
         const ctx = canvas.getContext('2d');
         if (!ctx) return resolve(null);
 
-        // Fill black background
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Draw the strokes (which will have whatever color they had in getDataURL)
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        // Force to strictly binary white and black pixels based on drawn strokes
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imgData.data;
         for (let i = 0; i < data.length; i += 4) {
-          // If the pixel is not purely black (R>0, G>0, or B>0), force it to pure white
           if (data[i] > 10 || data[i+1] > 10 || data[i+2] > 10) {
-            data[i] = 255;     // R
-            data[i+1] = 255;   // G
-            data[i+2] = 255;   // B
-            data[i+3] = 255;   // Alpha
+            data[i] = 255;
+            data[i+1] = 255;
+            data[i+2] = 255;
+            data[i+3] = 255;
           } else {
             data[i] = 0;
             data[i+1] = 0;
@@ -95,21 +117,48 @@ function App() {
 
   const handleSubmit = async () => {
     if (!imageFile) return alert("Please upload an image first.");
-    if (!prompt) return alert("Please enter a prompt.");
+    
+    // Validate that all steps have a prompt
+    const invalidStep = steps.findIndex(s => !s.prompt.trim());
+    if (invalidStep !== -1) {
+      setActiveStepIndex(invalidStep);
+      return alert(`Please enter a prompt for Step ${invalidStep + 1}.`);
+    }
     
     setIsLoading(true);
     
     try {
-      const maskBlob = await generateMask();
-      if (!maskBlob) throw new Error("Failed to generate mask");
-
       const formData = new FormData();
       formData.append('image', imageFile);
-      // maskBlob needs a filename
-      formData.append('mask', maskBlob, 'mask.png');
-      formData.append('prompt', prompt);
 
-      const endpoint = useFastModel ? 'http://localhost:8000/inpaint-fast' : 'http://localhost:8000/inpaint';
+      // Generate mask and append for each step
+      for (let i = 0; i < steps.length; i++) {
+        const maskBlob = await generateMask(i);
+        if (!maskBlob) throw new Error(`Failed to generate mask for step ${i + 1}`);
+        
+        formData.append('masks', maskBlob, `mask_${i}.png`);
+        formData.append('prompts', steps[i].prompt);
+      }
+
+      // If useFastModel and multiple steps -> inpaint-fast-multi
+      // If useFastModel and single step -> inpaint-fast-multi works fine too.
+      // If not fast model, we should warn if multiple steps. For now, backend only supports fast multi.
+      let endpoint = 'http://localhost:8000/inpaint';
+      if (useFastModel) {
+        endpoint = 'http://localhost:8000/inpaint-fast-multi';
+      } else if (steps.length > 1) {
+        alert("Multi-mask is currently only supported in Fast Mode. Please check 'Use Fast Mode'.");
+        setIsLoading(false);
+        return;
+      } else {
+        // Fallback for non-fast single step, rewrite form data to match old endpoint
+        formData.delete('masks');
+        formData.delete('prompts');
+        const maskBlob = await generateMask(0);
+        formData.append('mask', maskBlob as Blob, 'mask.png');
+        formData.append('prompt', steps[0].prompt);
+      }
+
       const response = await axios.post(endpoint, formData, {
         responseType: 'blob'
       });
@@ -146,6 +195,67 @@ function App() {
 
             {imageUrl && (
               <>
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="font-semibold mb-3">Masking Steps ({steps.length}/5)</h3>
+                  <div className="space-y-4">
+                    {steps.map((step, index) => (
+                      <div 
+                        key={step.id}
+                        className={`p-3 rounded-lg border transition-colors cursor-pointer ${activeStepIndex === index ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-gray-300 bg-white hover:border-blue-300'}`}
+                        onClick={() => setActiveStepIndex(index)}
+                      >
+                        <div className="flex justify-between items-center mb-2">
+                          <label className="text-sm font-semibold text-gray-800">
+                            Prompt for Mask {index + 1}
+                          </label>
+                          {index === activeStepIndex && (
+                            <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full font-medium">
+                              Drawing...
+                            </span>
+                          )}
+                        </div>
+                        <textarea 
+                          value={step.prompt}
+                          onChange={(e) => handlePromptChange(index, e.target.value)}
+                          onClick={() => setActiveStepIndex(index)}
+                          className="w-full border border-gray-300 rounded p-2 text-sm bg-white"
+                          rows={2}
+                          placeholder={`Describe what to generate in mask ${index + 1}...`}
+                        />
+                        
+                        {index === activeStepIndex && (
+                          <div className="mt-2 flex justify-between items-center">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); canvasRefs.current[index].current?.clear(); }} 
+                              className="text-xs text-red-500 hover:underline"
+                            >
+                              Clear Mask {index + 1}
+                            </button>
+
+                            {steps.length > 1 && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleRemoveStep(index); }}
+                                className="text-xs text-red-600 hover:underline font-medium"
+                              >
+                                Remove Step
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    
+                    {steps.length < 5 && (
+                      <button 
+                        onClick={handleAddStep}
+                        className="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 font-medium hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                      >
+                        + Add Another Mask
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Brush Size: {brushRadius}</label>
                   <input 
@@ -155,23 +265,6 @@ function App() {
                     value={brushRadius}
                     onChange={(e) => setBrushRadius(parseInt(e.target.value))}
                     className="w-full"
-                  />
-                  <button 
-                    onClick={() => canvasRef.current?.clear()} 
-                    className="mt-2 text-sm text-red-500 hover:underline"
-                  >
-                    Clear Mask
-                  </button>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Prompt</label>
-                  <textarea 
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    className="w-full border border-gray-300 rounded p-2"
-                    rows={3}
-                    placeholder="Describe what you want to generate in the masked area..."
                   />
                 </div>
 
@@ -211,18 +304,29 @@ function App() {
                   className="absolute top-0 left-0"
                   style={{ width: imageSize.width, height: imageSize.height }}
                 />
-                <div className="absolute top-0 left-0 opacity-70">
-                  <CanvasDraw
-                    ref={canvasRef}
-                    canvasWidth={imageSize.width}
-                    canvasHeight={imageSize.height}
-                    brushRadius={brushRadius}
-                    lazyRadius={0}
-                    brushColor="#ffffff"
-                    hideGrid={true}
-                    backgroundColor="transparent"
-                  />
-                </div>
+                
+                {/* Render up to 5 stacked canvases, but only show the active one */}
+                {steps.map((step, index) => (
+                  <div 
+                    key={step.id}
+                    className="absolute top-0 left-0 opacity-70"
+                    style={{ 
+                      display: index === activeStepIndex ? 'block' : 'none',
+                      zIndex: index === activeStepIndex ? 10 : 0
+                    }}
+                  >
+                    <CanvasDraw
+                      ref={canvasRefs.current[index]}
+                      canvasWidth={imageSize.width}
+                      canvasHeight={imageSize.height}
+                      brushRadius={brushRadius}
+                      lazyRadius={0}
+                      brushColor="#ffffff"
+                      hideGrid={true}
+                      backgroundColor="transparent"
+                    />
+                  </div>
+                ))}
               </div>
             )}
 
