@@ -151,10 +151,6 @@ async def inpaint_fast(
         mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
         mask_img = Image.fromarray(mask_array)
         mask_img = mask_img.resize(base_img.size, Image.Resampling.NEAREST)
-        
-        # Feather the mask slightly to help the VAE blend the edges (Differential Diffusion principle)
-        from PIL import ImageFilter
-        mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=3))
 
         print(f"Running fast pipeline with prompt: '{prompt}'")
         
@@ -168,8 +164,6 @@ async def inpaint_fast(
         out = fast_pipe(
             prompt=prompt,
             negative_prompt=" ",
-            image=base_img,
-            mask_image=mask_img,
             control_image=base_img,
             control_mask=mask_img,
             width=base_img.width,
@@ -177,14 +171,18 @@ async def inpaint_fast(
             num_inference_steps=4,       # Lightning 4-steps
             guidance_scale=1.0,          # Disable CFG
             true_cfg_scale=1.0,          # Disable true CFG
-            controlnet_conditioning_scale=1.0,
-            strength=0.99                # Denoise strength slightly < 1.0 to help blending
+            controlnet_conditioning_scale=1.0
         ).images[0]
 
         # Composite the generated inpaint area seamlessly back over the original image
         # This matches ComfyUI's ImageCompositeMasked behavior exactly.
         out = out.resize(base_img.size, Image.Resampling.LANCZOS)
         mask_composite = mask_img.resize(base_img.size, Image.Resampling.LANCZOS).convert("L")
+        
+        # Feather the mask for compositing to remove harsh outlines
+        from PIL import ImageFilter
+        mask_composite = mask_composite.filter(ImageFilter.GaussianBlur(radius=5))
+        
         final_img = Image.composite(out, base_img, mask_composite)
 
         img_byte_arr = io.BytesIO()
@@ -234,10 +232,6 @@ async def inpaint_fast_multi(
             mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
             mask_img = Image.fromarray(mask_array)
             mask_img = mask_img.resize(current_image.size, Image.Resampling.NEAREST)
-            
-            # Feather the mask slightly to help the VAE blend the edges (Differential Diffusion principle)
-            from PIL import ImageFilter
-            mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=3))
 
             print(f"Running multi-fast pipeline step {idx+1}/{len(masks)} with prompt: '{prompt}'")
             mask_img.save(os.path.join(debug_dir, f"debug_multi_mask_{idx}.png"))
@@ -245,8 +239,6 @@ async def inpaint_fast_multi(
             out = fast_pipe(
                 prompt=prompt,
                 negative_prompt=" ",
-                image=current_image,
-                mask_image=mask_img,
                 control_image=current_image,
                 control_mask=mask_img,
                 width=current_image.width,
@@ -254,13 +246,17 @@ async def inpaint_fast_multi(
                 num_inference_steps=4,       # Lightning 4-steps
                 guidance_scale=1.0,          # Disable CFG
                 true_cfg_scale=1.0,          # Disable true CFG
-                controlnet_conditioning_scale=1.0,
-                strength=0.99                # Denoise strength slightly < 1.0 to help blending
+                controlnet_conditioning_scale=1.0
             ).images[0]
 
             # Composite the generated inpaint area seamlessly back over the current image
             out = out.resize(current_image.size, Image.Resampling.LANCZOS)
             mask_composite = mask_img.resize(current_image.size, Image.Resampling.LANCZOS).convert("L")
+            
+            # Feather the mask for compositing to remove harsh outlines
+            from PIL import ImageFilter
+            mask_composite = mask_composite.filter(ImageFilter.GaussianBlur(radius=5))
+            
             current_image = Image.composite(out, current_image, mask_composite)
 
         img_byte_arr = io.BytesIO()
