@@ -248,11 +248,11 @@ function App() {
                         <div className="mb-2">
                            <label className="block text-xs font-medium text-gray-700 mb-1">Optional Reference Image</label>
                            {!step.referenceFile ? (
-                             <input 
+                              <input 
                                 type="file" 
                                 accept="image/*" 
                                 onChange={(e) => handleReferenceUpload(index, e)}
-                                onClick={(e) => setActiveStepIndex(index)}
+                                onClick={() => setActiveStepIndex(index)}
                                 className="w-full text-xs border border-gray-300 rounded p-1 bg-white"
                              />
                            ) : (
