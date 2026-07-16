@@ -1,3 +1,4 @@
+import os
 import torch
 from PIL import Image, ImageDraw
 from diffusers import FluxKontextInpaintPipeline
@@ -24,9 +25,12 @@ def create_dummy_images():
 
 def main():
     print("Loading FLUX.1 Kontext Pipeline...")
+    hf_token = os.environ.get("HF_TOKEN")
+    
     pipe = FluxKontextInpaintPipeline.from_pretrained(
         "black-forest-labs/FLUX.1-Kontext-dev",
-        torch_dtype=torch.bfloat16
+        torch_dtype=torch.bfloat16,
+        token=hf_token
     )
     # Essential for 12B parameter FLUX models on consumer hardware
     pipe.enable_model_cpu_offload()

@@ -1,5 +1,6 @@
 import io
 import json
+import os
 from typing import List, Optional
 
 import torch
@@ -14,11 +15,16 @@ app = FastAPI(title="FLUX.1 Kontext Sequential Editing API")
 
 print("Initializing FLUX.1 Kontext Dev Pipeline...")
 try:
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        print("WARNING: HF_TOKEN environment variable is not set. Gated models will fail to load.")
+        
     # We load the pipeline in bfloat16. 
     # For FLUX models (~12B parameters), CPU offloading is crucial for memory management.
     pipe = FluxKontextInpaintPipeline.from_pretrained(
         "black-forest-labs/FLUX.1-Kontext-dev",
-        torch_dtype=torch.bfloat16
+        torch_dtype=torch.bfloat16,
+        token=hf_token
     )
     pipe.enable_model_cpu_offload()
     print("Pipeline loaded successfully with CPU offloading.")
