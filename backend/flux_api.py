@@ -4,7 +4,7 @@ import os
 from typing import List, Optional
 
 import torch
-from PIL import Image
+from PIL import Image, ImageFilter
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -115,10 +115,17 @@ async def edit_image(
             if mask_img.size != current_image.size:
                 mask_img = mask_img.resize(current_image.size, Image.Resampling.NEAREST)
 
+            # --- Mask Processing (Dilation and Feathering) ---
+            # Grow the mask so the model can seamlessly blend the edges into the background
+            processed_mask = mask_img.copy()
+            for _ in range(15):  # Dilate outward
+                processed_mask = processed_mask.filter(ImageFilter.MaxFilter(3))
+            processed_mask = processed_mask.filter(ImageFilter.GaussianBlur(radius=25)) # Blur the edges
+
             # FLUX.1 Kontext Dev Official Diffusers Generation Call
             output = pipe(
                 image=current_image,
-                mask_image=mask_img,
+                mask_image=processed_mask,
                 prompt=prompt,
                 image_reference=ref_img,
                 strength=1.0,           # Full replacement of the masked area
@@ -126,8 +133,15 @@ async def edit_image(
                 guidance_scale=3.5      # Standard CFG for FLUX.1 dev
             ).images[0]
 
-            # The output becomes the input for the next edit
-            current_image = output
+            # --- Pristine Compositing ---
+            # Even though FLUX generates the whole image, we stitch the edited portion back onto 
+            # the original using the *original* (un-dilated, slightly feathered) mask 
+            # to preserve 100% untouched pixels in the background.
+            mask_composite = mask_img.convert("L")
+            mask_composite = mask_composite.filter(ImageFilter.GaussianBlur(radius=5))
+            
+            output = output.resize(current_image.size, Image.Resampling.LANCZOS)
+            current_image = Image.composite(output, current_image, mask_composite)
 
         except Exception as e:
             import traceback
