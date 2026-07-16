@@ -6,12 +6,21 @@ from typing import List, Optional
 import torch
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 # Ensure you have installed diffusers from source: pip install git+https://github.com/huggingface/diffusers.git
 from diffusers import FluxKontextInpaintPipeline
 
 app = FastAPI(title="FLUX.1 Kontext Sequential Editing API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 print("Initializing FLUX.1 Kontext Dev Pipeline...")
 try:
