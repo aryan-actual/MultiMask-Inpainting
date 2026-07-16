@@ -5,17 +5,17 @@ import axios from 'axios';
 interface Step {
   id: number;
   prompt: string;
+  referenceFile: File | null;
 }
 
 function App() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string>('');
   
-  const [steps, setSteps] = useState<Step[]>([{ id: Date.now(), prompt: '' }]);
+  const [steps, setSteps] = useState<Step[]>([{ id: Date.now(), prompt: '', referenceFile: null }]);
   const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
   
   const [brushRadius, setBrushRadius] = useState<number>(20);
-  const [useFastModel, setUseFastModel] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [resultUrl, setResultUrl] = useState<string>('');
   const [imageSize, setImageSize] = useState<{width: number, height: number}>({width: 512, height: 512});
@@ -32,7 +32,7 @@ function App() {
       const url = URL.createObjectURL(file);
       setImageUrl(url);
       setResultUrl('');
-      setSteps([{ id: Date.now(), prompt: '' }]);
+      setSteps([{ id: Date.now(), prompt: '', referenceFile: null }]);
       setActiveStepIndex(0);
 
       // Get image dimensions to size the canvas
@@ -54,7 +54,7 @@ function App() {
 
   const handleAddStep = () => {
     if (steps.length >= 5) return;
-    setSteps([...steps, { id: Date.now(), prompt: '' }]);
+    setSteps([...steps, { id: Date.now(), prompt: '', referenceFile: null }]);
     setActiveStepIndex(steps.length);
   };
 
@@ -72,6 +72,21 @@ function App() {
     newSteps[index].prompt = val;
     setSteps(newSteps);
   };
+
+  const handleReferenceUpload = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const newSteps = [...steps];
+      newSteps[index].referenceFile = e.target.files[0];
+      setSteps(newSteps);
+    }
+  };
+  
+  const handleRemoveReference = (index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newSteps = [...steps];
+    newSteps[index].referenceFile = null;
+    setSteps(newSteps);
+  }
 
   const generateMask = async (index: number): Promise<Blob | null> => {
     const canvasRef = canvasRefs.current[index];
@@ -132,37 +147,36 @@ function App() {
     
     try {
       const formData = new FormData();
-      formData.append('image', imageFile);
+      formData.append('original_image', imageFile);
+
+      const editsJson = [];
 
       // Generate mask and append for each step
       for (let i = 0; i < steps.length; i++) {
         const maskBlob = await generateMask(i);
         if (!maskBlob) throw new Error(`Failed to generate mask for step ${i + 1}`);
         
-        formData.append('masks', maskBlob, `mask_${i}.png`);
-        formData.append('prompts', steps[i].prompt);
+        const maskFilename = `mask_${i}.png`;
+        formData.append('files', maskBlob, maskFilename);
+        
+        let refFilename = null;
+        if (steps[i].referenceFile) {
+          refFilename = `ref_${i}_${steps[i].referenceFile?.name}`;
+          formData.append('files', steps[i].referenceFile as File, refFilename);
+        }
+
+        editsJson.push({
+          mask: maskFilename,
+          prompt: steps[i].prompt,
+          reference: refFilename
+        });
       }
 
-      // If useFastModel and multiple steps -> inpaint-fast-multi
-      // If useFastModel and single step -> inpaint-fast-multi works fine too.
-      // If not fast model, we should warn if multiple steps. For now, backend only supports fast multi.
+      formData.append('edits', JSON.stringify(editsJson));
+
       const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`;
-      let endpoint = `${API_BASE}/inpaint`;
-      if (useFastModel) {
-        endpoint = `${API_BASE}/inpaint-fast-multi`;
-      } else if (steps.length > 1) {
-        alert("Multi-mask is currently only supported in Fast Mode. Please check 'Use Fast Mode'.");
-        setIsLoading(false);
-        return;
-      } else {
-        // Fallback for non-fast single step, rewrite form data to match old endpoint
-        formData.delete('masks');
-        formData.delete('prompts');
-        const maskBlob = await generateMask(0);
-        formData.append('mask', maskBlob as Blob, 'mask.png');
-        formData.append('prompt', steps[0].prompt);
-      }
-
+      const endpoint = `${API_BASE}/edit`;
+      
       const response = await axios.post(endpoint, formData, {
         responseType: 'blob'
       });
@@ -181,7 +195,7 @@ function App() {
   return (
     <div className="min-h-screen p-8 text-gray-800">
       <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-lg p-6">
-        <h1 className="text-3xl font-bold mb-6 text-center">Qwen Image Inpainting</h1>
+        <h1 className="text-3xl font-bold mb-6 text-center">FLUX.1 Kontext Sequential Editing</h1>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           
@@ -226,10 +240,28 @@ function App() {
                           value={step.prompt}
                           onChange={(e) => handlePromptChange(index, e.target.value)}
                           onClick={() => setActiveStepIndex(index)}
-                          className="w-full border border-gray-300 rounded p-2 text-sm bg-white"
+                          className="w-full border border-gray-300 rounded p-2 text-sm bg-white mb-2"
                           rows={2}
                           placeholder={`Describe what to generate in mask ${index + 1}...`}
                         />
+                        
+                        <div className="mb-2">
+                           <label className="block text-xs font-medium text-gray-700 mb-1">Optional Reference Image</label>
+                           {!step.referenceFile ? (
+                             <input 
+                                type="file" 
+                                accept="image/*" 
+                                onChange={(e) => handleReferenceUpload(index, e)}
+                                onClick={(e) => setActiveStepIndex(index)}
+                                className="w-full text-xs border border-gray-300 rounded p-1 bg-white"
+                             />
+                           ) : (
+                             <div className="flex items-center justify-between bg-blue-100 p-2 rounded text-xs font-medium">
+                                <span className="truncate">{step.referenceFile.name}</span>
+                                <button onClick={(e) => handleRemoveReference(index, e)} className="text-red-500 hover:underline">Remove</button>
+                             </div>
+                           )}
+                        </div>
                         
                         {index === activeStepIndex && (
                           <div className="mt-2 flex justify-between items-center">
@@ -276,25 +308,12 @@ function App() {
                   />
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <input 
-                    type="checkbox" 
-                    id="fastMode" 
-                    checked={useFastModel} 
-                    onChange={(e) => setUseFastModel(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <label htmlFor="fastMode" className="text-sm font-medium text-gray-700">
-                    Use Fast Mode (ControlNet + Lightning 4-Steps)
-                  </label>
-                </div>
-
                 <button 
                   onClick={handleSubmit} 
                   disabled={isLoading}
-                  className="w-full bg-blue-600 text-white font-bold py-3 rounded shadow hover:bg-blue-700 disabled:opacity-50"
+                  className="w-full bg-blue-600 text-white font-bold py-3 rounded shadow hover:bg-blue-700 disabled:opacity-50 mt-4"
                 >
-                  {isLoading ? 'Generating...' : 'Generate Edit'}
+                  {isLoading ? 'Generating (This may take a while)...' : 'Generate Edit'}
                 </button>
               </>
             )}
