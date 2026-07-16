@@ -5,6 +5,8 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/models:/app/models
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
     deploy:
       resources:
         reservations:
