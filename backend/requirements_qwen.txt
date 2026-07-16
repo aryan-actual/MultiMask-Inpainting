@@ -1,0 +1,11 @@
+git+https://github.com/huggingface/diffusers.git
+transformers>=4.41.2
+accelerate>=0.31.0
+sentencepiece
+protobuf
+fastapi
+uvicorn
+python-multipart
+Pillow
+torch>=2.0.0
+numpy

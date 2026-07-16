@@ -19,12 +19,12 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy the requirements file into the container
-COPY requirements_flux.txt .
+COPY requirements_qwen.txt .
 
 # Install the Python dependencies
 # We use --no-cache-dir to keep the image size small
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements_flux.txt
+    pip install --no-cache-dir -r requirements_qwen.txt
 
 # Copy the rest of the application code
 COPY . .
@@ -33,4 +33,4 @@ COPY . .
 EXPOSE 8000
 
 # Command to run the FastAPI server using Uvicorn
-CMD ["uvicorn", "flux_api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "qwen_api:app", "--host", "0.0.0.0", "--port", "8000"]
