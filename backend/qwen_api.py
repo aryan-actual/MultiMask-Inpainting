@@ -135,22 +135,17 @@ async def edit_image(
                 processed_mask = processed_mask.filter(ImageFilter.MaxFilter(3))
             processed_mask = processed_mask.filter(ImageFilter.GaussianBlur(radius=25)) # Blur the edges
 
-            # Format prompt for Qwen VL (requires indicating which image is which)
-            images_list = [current_image]
-            final_prompt = prompt
-            
+            # Format prompt for Qwen VL
+            # Qwen Edit Inpaint Pipeline ONLY accepts a single base image. 
+            # Reference images are not officially supported by this specific Diffusers pipeline.
             if ref_img:
-                images_list.append(ref_img)
-                # Prefix the prompt so the VL model knows to look at the second image for reference
-                # Qwen uses <|image_pad|> internally when multiple images are passed.
-                final_prompt = f"In the first image, {prompt}. Use the second image as a visual reference."
+                print(f"Warning: Reference image provided for edit step {i+1}, but QwenImageEditInpaintPipeline does not support them. It will be ignored.")
 
             # Qwen-Image-Edit Official Diffusers Generation Call
-            # We pass `image=images_list` allowing it to ingest both the base and reference image
             output = pipe(
-                image=images_list,
+                image=current_image,
                 mask_image=processed_mask,
-                prompt=final_prompt,
+                prompt=prompt,
                 negative_prompt=" ",
                 strength=1.0,           # Full replacement of the masked area
                 num_inference_steps=20, # Standard steps for Qwen Edit

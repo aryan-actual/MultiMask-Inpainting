@@ -38,17 +38,15 @@ def main():
     
     print("\n--- Starting Sequential Editing ---")
     
-    # Edit 1: Replace left object using a reference image
-    prompt_1 = "Replace the masked area with the green material from the reference image."
+    # Edit 1: Replace left object (Qwen only supports text-based replacement for masked inpainting)
+    prompt_1 = "Replace the masked area with a green modern sofa."
     print(f"\nStep 1: {prompt_1}")
-    print("Using: Mask 1 + Reference Image 1")
-    
-    final_prompt_1 = f"In the first image, {prompt_1}. Use the second image as a visual reference."
+    print("Using: Mask 1")
     
     current_image = pipe(
-        image=[current_image, ref_1],
+        image=current_image,
         mask_image=mask_1,
-        prompt=final_prompt_1,
+        prompt=prompt_1,
         negative_prompt=" ",
         strength=1.0,
         num_inference_steps=20,
