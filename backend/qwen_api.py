@@ -111,14 +111,21 @@ async def edit_image(
         mask_img = Image.fromarray(mask_array)
         masks_for_composite.append(mask_img)
         
-        # Composite semi-transparent color over the annotated image
-        solid_color = Image.new("RGBA", current_image.size, COLORS_RGB[i] + (160,)) # ~60% opacity
+        # Convert mask to an OUTLINE annotation instead of a filled blob.
+        # A filled semi-transparent blob alters the image pixels, confusing the VLM into 
+        # thinking the object is tinted red/blue, and blinding it to details underneath.
+        # An outline allows the VLM to see the original context perfectly while knowing the bounds.
+        outline = mask_img.filter(ImageFilter.FIND_EDGES)
+        outline = outline.filter(ImageFilter.MaxFilter(5)) # Thicken to 5px for clear VLM visibility
+        
+        # Draw solid 100% opacity colored outline
+        solid_color = Image.new("RGBA", current_image.size, COLORS_RGB[i] + (255,))
         transparent = Image.new("RGBA", current_image.size, (0,0,0,0))
-        color_layer = Image.composite(solid_color, transparent, mask_img)
+        color_layer = Image.composite(solid_color, transparent, outline)
         annotated_image = Image.alpha_composite(annotated_image, color_layer)
 
         color_name = COLOR_NAMES[i]
-        prompt_part = f"- Edit the region marked in {color_name}: {prompt}"
+        prompt_part = f"- Edit the region outlined in {color_name}: {prompt}"
         
         if ref_filename and len(ref_images) < 2:
             if ref_filename not in file_map:

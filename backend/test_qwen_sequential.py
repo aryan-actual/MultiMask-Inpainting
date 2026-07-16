@@ -39,23 +39,25 @@ def main():
     
     annotated_image = current_image.convert("RGBA")
     
-    # Colorize Mask 1 (Red)
-    solid_red = Image.new("RGBA", current_image.size, (255, 0, 0, 160))
+    # Colorize Mask 1 Outline (Red)
+    outline_1 = mask_1.filter(ImageFilter.FIND_EDGES).filter(ImageFilter.MaxFilter(5))
+    solid_red = Image.new("RGBA", current_image.size, (255, 0, 0, 255))
     transparent = Image.new("RGBA", current_image.size, (0, 0, 0, 0))
-    layer_red = Image.composite(solid_red, transparent, mask_1)
+    layer_red = Image.composite(solid_red, transparent, outline_1)
     annotated_image = Image.alpha_composite(annotated_image, layer_red)
     
-    # Colorize Mask 2 (Blue)
-    solid_blue = Image.new("RGBA", current_image.size, (0, 0, 255, 160))
-    layer_blue = Image.composite(solid_blue, transparent, mask_2)
+    # Colorize Mask 2 Outline (Blue)
+    outline_2 = mask_2.filter(ImageFilter.FIND_EDGES).filter(ImageFilter.MaxFilter(5))
+    solid_blue = Image.new("RGBA", current_image.size, (0, 0, 255, 255))
+    layer_blue = Image.composite(solid_blue, transparent, outline_2)
     annotated_image = Image.alpha_composite(annotated_image, layer_blue)
     
     annotated_image = annotated_image.convert("RGB")
     annotated_image.save("debug_annotated_input.png")
     
     master_prompt = "In the first image:\n"
-    master_prompt += "- Edit the region marked in red: Replace the masked area with a green modern sofa. Use the second image as a visual reference.\n"
-    master_prompt += "- Edit the region marked in blue: Remove the object and seamlessly blend with the blue background.\n"
+    master_prompt += "- Edit the region outlined in red: Replace the masked area with a green modern sofa. Use the second image as a visual reference.\n"
+    master_prompt += "- Edit the region outlined in blue: Remove the object and seamlessly blend with the blue background.\n"
     
     print("Master Prompt:\n", master_prompt)
     
