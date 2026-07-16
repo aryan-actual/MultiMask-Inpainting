@@ -43,6 +43,10 @@ except Exception as e:
     traceback.print_exc()
     pipe = None
 
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "pipeline_loaded": pipe is not None}
+
 @app.post("/edit")
 async def edit_image(
     original_image: UploadFile = File(...),

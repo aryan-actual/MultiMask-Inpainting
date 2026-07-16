@@ -184,8 +184,22 @@ function App() {
       const outUrl = URL.createObjectURL(response.data);
       setResultUrl(outUrl);
     } catch (err: any) {
-      console.error(err);
-      const errorMsg = err.response?.data?.detail || err.message || "Error generating image.";
+      console.error("Full error object:", err);
+      let errorMsg = err.message || "Error generating image.";
+      
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          console.error("Error response text:", text);
+          const json = JSON.parse(text);
+          errorMsg = json.detail || text;
+        } catch (e) {
+          errorMsg = "Network Error or backend failed to return valid image.";
+        }
+      } else if (err.response?.data?.detail) {
+        errorMsg = err.response.data.detail;
+      }
+      
       alert(`Error: ${errorMsg}`);
     } finally {
       setIsLoading(false);
