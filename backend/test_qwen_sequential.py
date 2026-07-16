@@ -56,8 +56,8 @@ def main():
     annotated_image.save("debug_annotated_input.png")
     
     master_prompt = "In the first image:\n"
-    master_prompt += "- Edit the region outlined in red: Replace the masked area with a green modern sofa. Use the second image as a visual reference.\n"
-    master_prompt += "- Edit the region outlined in blue: Remove the object and seamlessly blend with the blue background.\n"
+    master_prompt += "- Replace the region enclosed by the red outline with: a green modern sofa. Use the second image as a visual reference. Ensure the red outline itself is completely removed.\n"
+    master_prompt += "- Replace the region enclosed by the blue outline with: the blue background, seamlessly blending it. Ensure the blue outline itself is completely removed.\n"
     
     print("Master Prompt:\n", master_prompt)
     

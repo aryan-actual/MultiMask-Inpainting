@@ -125,7 +125,7 @@ async def edit_image(
         annotated_image = Image.alpha_composite(annotated_image, color_layer)
 
         color_name = COLOR_NAMES[i]
-        prompt_part = f"- Edit the region outlined in {color_name}: {prompt}"
+        prompt_part = f"- Replace the region enclosed by the {color_name} outline with: {prompt}. Ensure the {color_name} outline itself is completely removed."
         
         if ref_filename and len(ref_images) < 2:
             if ref_filename not in file_map:
@@ -135,7 +135,7 @@ async def edit_image(
             ref_images.append(ref_img)
             ref_idx = len(ref_images) + 1 # +1 because annotated_image is 1st
             image_word = ["second", "third"][ref_idx - 2]
-            prompt_part += f". Use the {image_word} image as a visual reference."
+            prompt_part += f" Use the {image_word} image as a visual reference."
         elif ref_filename:
             print(f"Warning: Reference image for step {i+1} ignored due to max 2 limit.")
             
