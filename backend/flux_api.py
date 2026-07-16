@@ -4,6 +4,7 @@ import os
 from typing import List, Optional
 
 import torch
+import numpy as np
 from PIL import Image, ImageFilter
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -76,6 +77,18 @@ async def edit_image(
     try:
         orig_img_bytes = await original_image.read()
         current_image = Image.open(io.BytesIO(orig_img_bytes)).convert("RGB")
+        
+        # Resize to max 1024 for memory efficiency and speed, maintaining aspect ratio
+        max_size = 1024
+        if current_image.width > max_size or current_image.height > max_size:
+            current_image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+        # Ensure width and height are perfectly divisible by 16 for the VAE/Transformer
+        w, h = current_image.size
+        w = (w // 16) * 16
+        h = (h // 16) * 16
+        current_image = current_image.resize((w, h), Image.Resampling.LANCZOS)
+        
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid original_image: {str(e)}")
 
@@ -99,6 +112,11 @@ async def edit_image(
         # Load mask
         mask_bytes = await file_map[mask_filename].read()
         mask_img = Image.open(io.BytesIO(mask_bytes)).convert("L")
+        
+        # Binarize mask to ensure clean edges before processing
+        mask_array = np.array(mask_img)
+        mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
+        mask_img = Image.fromarray(mask_array)
 
         # Load reference image if provided
         ref_img = None
@@ -135,13 +153,11 @@ async def edit_image(
 
             # --- Pristine Compositing ---
             # Even though FLUX generates the whole image, we stitch the edited portion back onto 
-            # the original using the *original* (un-dilated, slightly feathered) mask 
-            # to preserve 100% untouched pixels in the background.
-            mask_composite = mask_img.convert("L")
-            mask_composite = mask_composite.filter(ImageFilter.GaussianBlur(radius=5))
-            
+            # the original using the *processed_mask* (dilated and feathered).
+            # This ensures the generated shadows/blending zones are preserved while 
+            # keeping the rest of the background 100% untouched.
             output = output.resize(current_image.size, Image.Resampling.LANCZOS)
-            current_image = Image.composite(output, current_image, mask_composite)
+            current_image = Image.composite(output, current_image, processed_mask)
 
         except Exception as e:
             import traceback
