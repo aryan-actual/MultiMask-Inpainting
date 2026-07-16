@@ -67,13 +67,9 @@ def main():
         true_cfg_scale=5.0
     ).images[0]
     
-    # Combine masks for pristine compositing of background
-    combined_mask = Image.composite(Image.new("L", current_image.size, 255), mask_2, mask_1)
-    for _ in range(15):
-        combined_mask = combined_mask.filter(ImageFilter.MaxFilter(3))
-    combined_mask = combined_mask.filter(ImageFilter.GaussianBlur(radius=25))
-    
-    final_output = Image.composite(output, current_image, combined_mask)
+    # We DO NOT composite masks back! The Qwen Visual Instruction model 
+    # handles the global preservation and perfectly replaces the annotated regions.
+    final_output = output
     
     final_output.save("qwen_visual_instruction_output.png")
     print("Saved qwen_visual_instruction_output.png")

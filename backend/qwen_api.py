@@ -153,21 +153,14 @@ async def edit_image(
             true_cfg_scale=5.0
         ).images[0]
 
-        # Combine all masks into a single master mask for compositing
-        combined_mask = Image.new("L", current_image.size, 0)
-        white = Image.new("L", current_image.size, 255)
-        for m in masks_for_composite:
-            combined_mask = Image.composite(white, combined_mask, m)
-
-        # Dilate and blur the combined mask for a soft, global transition
-        # This keeps the unedited background pristine while letting Qwen perfectly blend the edited zones
-        processed_mask = combined_mask.copy()
-        for _ in range(20):
-            processed_mask = processed_mask.filter(ImageFilter.MaxFilter(3))
-        processed_mask = processed_mask.filter(ImageFilter.GaussianBlur(radius=30))
-        
         output = output.resize(current_image.size, Image.Resampling.LANCZOS)
-        final_output = Image.composite(output, current_image, processed_mask)
+        
+        # We NO LONGER composite the output back onto the original image.
+        # The Qwen-Image-Edit-Plus model is trained to globally preserve the unedited background 
+        # while perfectly rewriting the annotated regions into seamless pixels.
+        # If we manually composite, we cut off the generated shadows and leave ghosting artifacts 
+        # from the semi-transparent red/blue annotations.
+        final_output = output
 
     except Exception as e:
         import traceback
