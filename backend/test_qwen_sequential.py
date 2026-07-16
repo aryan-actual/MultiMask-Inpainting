@@ -1,7 +1,7 @@
 import os
 import torch
-from PIL import Image, ImageDraw
-from diffusers import QwenImageEditInpaintPipeline
+from PIL import Image, ImageDraw, ImageFilter
+from diffusers import QwenImageEditPlusPipeline
 
 def create_dummy_images():
     """Create a dummy original image, two masks, and one reference image."""
@@ -24,57 +24,60 @@ def create_dummy_images():
     return original, mask1, ref1, mask2
 
 def main():
-    print("Loading Qwen-Image-Edit Pipeline...")
+    print("Loading Qwen-Image-Edit-Plus Pipeline...")
     
-    pipe = QwenImageEditInpaintPipeline.from_pretrained(
+    pipe = QwenImageEditPlusPipeline.from_pretrained(
         "Qwen/Qwen-Image-Edit-2511",
         torch_dtype=torch.bfloat16
     )
-    # Essential for 7B parameter models on consumer hardware
     pipe.enable_model_cpu_offload()
     
     print("Creating dummy inputs...")
     current_image, mask_1, ref_1, mask_2 = create_dummy_images()
     
-    print("\n--- Starting Sequential Editing ---")
+    print("\n--- Starting Visual Instruction Editing (Single Pass) ---")
     
-    # Edit 1: Replace left object (Qwen only supports text-based replacement for masked inpainting)
-    prompt_1 = "Replace the masked area with a green modern sofa."
-    print(f"\nStep 1: {prompt_1}")
-    print("Using: Mask 1")
+    annotated_image = current_image.convert("RGBA")
     
-    current_image = pipe(
-        image=current_image,
-        mask_image=mask_1,
-        prompt=prompt_1,
+    # Colorize Mask 1 (Red)
+    solid_red = Image.new("RGBA", current_image.size, (255, 0, 0, 160))
+    transparent = Image.new("RGBA", current_image.size, (0, 0, 0, 0))
+    layer_red = Image.composite(solid_red, transparent, mask_1)
+    annotated_image = Image.alpha_composite(annotated_image, layer_red)
+    
+    # Colorize Mask 2 (Blue)
+    solid_blue = Image.new("RGBA", current_image.size, (0, 0, 255, 160))
+    layer_blue = Image.composite(solid_blue, transparent, mask_2)
+    annotated_image = Image.alpha_composite(annotated_image, layer_blue)
+    
+    annotated_image = annotated_image.convert("RGB")
+    annotated_image.save("debug_annotated_input.png")
+    
+    master_prompt = "In the first image:\n"
+    master_prompt += "- Edit the region marked in red: Replace the masked area with a green modern sofa. Use the second image as a visual reference.\n"
+    master_prompt += "- Edit the region marked in blue: Remove the object and seamlessly blend with the blue background.\n"
+    
+    print("Master Prompt:\n", master_prompt)
+    
+    output = pipe(
+        image=[annotated_image, ref_1],
+        prompt=master_prompt,
         negative_prompt=" ",
-        strength=1.0,
         num_inference_steps=20,
         true_cfg_scale=5.0
     ).images[0]
     
-    current_image.save("qwen_step_1_output.png")
-    print("Saved qwen_step_1_output.png")
+    # Combine masks for pristine compositing of background
+    combined_mask = Image.composite(Image.new("L", current_image.size, 255), mask_2, mask_1)
+    for _ in range(15):
+        combined_mask = combined_mask.filter(ImageFilter.MaxFilter(3))
+    combined_mask = combined_mask.filter(ImageFilter.GaussianBlur(radius=25))
     
-    # Edit 2: Remove right object (no reference image)
-    prompt_2 = "Remove the object and seamlessly blend with the blue background."
-    print(f"\nStep 2: {prompt_2}")
-    print("Using: Mask 2 (No Reference Image)")
+    final_output = Image.composite(output, current_image, combined_mask)
     
-    current_image = pipe(
-        image=[current_image], # Only base image
-        mask_image=mask_2,
-        prompt=prompt_2,
-        negative_prompt=" ",
-        strength=1.0,
-        num_inference_steps=20,
-        true_cfg_scale=5.0
-    ).images[0]
-    
-    current_image.save("qwen_step_2_final_output.png")
-    print("Saved qwen_step_2_final_output.png")
-    
-    print("\nSequential editing completed successfully.")
+    final_output.save("qwen_visual_instruction_output.png")
+    print("Saved qwen_visual_instruction_output.png")
+    print("\nEditing completed successfully.")
 
 if __name__ == "__main__":
     main()

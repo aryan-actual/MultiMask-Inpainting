@@ -142,6 +142,12 @@ function App() {
       setActiveStepIndex(invalidStep);
       return alert(`Please enter a prompt for Step ${invalidStep + 1}.`);
     }
+
+    // Safety constraint: Qwen Plus Pipeline accepts max 2 reference images total
+    const totalReferences = steps.filter(s => s.referenceFile).length;
+    if (totalReferences > 2) {
+        return alert(`Qwen-Image-Edit supports a maximum of 2 reference images per generation. You currently have ${totalReferences}. Please remove some references.`);
+    }
     
     setIsLoading(true);
     
@@ -209,7 +215,7 @@ function App() {
   return (
     <div className="min-h-screen p-8 text-gray-800">
       <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-lg p-6">
-        <h1 className="text-3xl font-bold mb-6 text-center">FLUX.1 Kontext Sequential Editing</h1>
+        <h1 className="text-3xl font-bold mb-6 text-center">Qwen Visual Instruction Mode</h1>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           

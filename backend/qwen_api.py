@@ -10,10 +10,10 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-# Ensure you have installed diffusers from source: pip install git+https://github.com/huggingface/diffusers.git
-from diffusers import QwenImageEditInpaintPipeline
+# Ensure you have installed diffusers from source
+from diffusers import QwenImageEditPlusPipeline
 
-app = FastAPI(title="Qwen-Image-Edit-2511 Sequential Editing API")
+app = FastAPI(title="Qwen-Image-Edit-2511 Visual Instruction API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,11 +23,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-print("Initializing Qwen-Image-Edit-2511 Pipeline...")
+print("Initializing Qwen-Image-Edit-2511 Plus Pipeline...")
 try:
     # We load the pipeline in bfloat16. 
-    # For models this large, CPU offloading is crucial for memory management.
-    pipe = QwenImageEditInpaintPipeline.from_pretrained(
+    pipe = QwenImageEditPlusPipeline.from_pretrained(
         "Qwen/Qwen-Image-Edit-2511",
         torch_dtype=torch.bfloat16
     )
@@ -49,36 +48,24 @@ async def edit_image(
     edits: str = Form(...),
     files: List[UploadFile] = File(default=[])
 ):
-    """
-    Perform sequential masked editing.
-    
-    `original_image`: The starting image.
-    `edits`: A JSON string representing a list of edit operations.
-             Format: [{"mask": "mask1.png", "prompt": "...", "reference": "ref1.png"}, ...]
-    `files`: A flat list of all mask and reference image files referenced in the `edits` JSON.
-    """
     if pipe is None:
         raise HTTPException(status_code=503, detail="Pipeline not loaded.")
 
     try:
-        # Parse edits JSON
         edit_operations = json.loads(edits)
         if not isinstance(edit_operations, list):
             raise ValueError("edits must be a JSON array of operations.")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid edits JSON: {str(e)}")
 
-    # Read the original image
     try:
         orig_img_bytes = await original_image.read()
         current_image = Image.open(io.BytesIO(orig_img_bytes)).convert("RGB")
         
-        # Resize to max 1024 for memory efficiency and speed, maintaining aspect ratio
         max_size = 1024
         if current_image.width > max_size or current_image.height > max_size:
             current_image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             
-        # Ensure width and height are perfectly divisible by 16 for the VAE/Transformer
         w, h = current_image.size
         w = (w // 16) * 16
         h = (h // 16) * 16
@@ -87,87 +74,108 @@ async def edit_image(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid original_image: {str(e)}")
 
-    # Map uploaded files by filename for easy access
     file_map = {}
     for f in files:
         if f.filename:
             file_map[f.filename] = f
 
-    print(f"Starting sequential processing of {len(edit_operations)} edits...")
+    print(f"Starting Visual Instruction processing for {len(edit_operations)} edits in ONE pass...")
 
-    # Process edits sequentially
+    annotated_image = current_image.convert("RGBA")
+    
+    COLORS_RGB = [(255, 0, 0), (0, 0, 255), (0, 255, 0), (255, 255, 0), (128, 0, 128)]
+    COLOR_NAMES = ["red", "blue", "green", "yellow", "purple"]
+    
+    master_prompt = "In the first image:\n"
+    ref_images = []
+    masks_for_composite = []
+
     for i, edit in enumerate(edit_operations):
+        if i >= len(COLORS_RGB):
+            print(f"Warning: Only {len(COLORS_RGB)} edits supported in one pass. Skipping excess.")
+            break
+
         mask_filename = edit.get("mask")
         prompt = edit.get("prompt", "")
         ref_filename = edit.get("reference")
 
         if not mask_filename or mask_filename not in file_map:
-            raise HTTPException(status_code=400, detail=f"Mask file '{mask_filename}' not found in uploaded files.")
+            raise HTTPException(status_code=400, detail=f"Mask file '{mask_filename}' not found.")
         
-        # Load mask
         mask_bytes = await file_map[mask_filename].read()
         mask_img = Image.open(io.BytesIO(mask_bytes)).convert("L")
+        mask_img = mask_img.resize(current_image.size, Image.Resampling.NEAREST)
         
-        # Binarize mask to ensure clean edges before processing
         mask_array = np.array(mask_img)
         mask_array = np.where(mask_array > 128, 255, 0).astype(np.uint8)
         mask_img = Image.fromarray(mask_array)
+        masks_for_composite.append(mask_img)
+        
+        # Composite semi-transparent color over the annotated image
+        solid_color = Image.new("RGBA", current_image.size, COLORS_RGB[i] + (160,)) # ~60% opacity
+        transparent = Image.new("RGBA", current_image.size, (0,0,0,0))
+        color_layer = Image.composite(solid_color, transparent, mask_img)
+        annotated_image = Image.alpha_composite(annotated_image, color_layer)
 
-        # Load reference image if provided
-        ref_img = None
-        if ref_filename:
+        color_name = COLOR_NAMES[i]
+        prompt_part = f"- Edit the region marked in {color_name}: {prompt}"
+        
+        if ref_filename and len(ref_images) < 2:
             if ref_filename not in file_map:
-                raise HTTPException(status_code=400, detail=f"Reference file '{ref_filename}' not found in uploaded files.")
+                raise HTTPException(status_code=400, detail=f"Reference file '{ref_filename}' not found.")
             ref_bytes = await file_map[ref_filename].read()
             ref_img = Image.open(io.BytesIO(ref_bytes)).convert("RGB")
+            ref_images.append(ref_img)
+            ref_idx = len(ref_images) + 1 # +1 because annotated_image is 1st
+            image_word = ["second", "third"][ref_idx - 2]
+            prompt_part += f". Use the {image_word} image as a visual reference."
+        elif ref_filename:
+            print(f"Warning: Reference image for step {i+1} ignored due to max 2 limit.")
+            
+        master_prompt += prompt_part + "\n"
 
-        print(f"Executing Edit {i+1}/{len(edit_operations)}: Prompt='{prompt}'")
+    annotated_image = annotated_image.convert("RGB") # Convert back to RGB for model
 
-        try:
-            # Resize mask to match current image if necessary
-            if mask_img.size != current_image.size:
-                mask_img = mask_img.resize(current_image.size, Image.Resampling.NEAREST)
+    print(f"Master Prompt:\n{master_prompt}")
 
-            # --- Mask Processing (Dilation and Feathering) ---
-            # Grow the mask so the model can seamlessly blend the edges into the background
-            processed_mask = mask_img.copy()
-            for _ in range(15):  # Dilate outward
-                processed_mask = processed_mask.filter(ImageFilter.MaxFilter(3))
-            processed_mask = processed_mask.filter(ImageFilter.GaussianBlur(radius=25)) # Blur the edges
+    try:
+        images_list = [annotated_image] + ref_images
+        
+        # Save debug annotated image
+        annotated_image.save("debug_annotated_input.png")
 
-            # Format prompt for Qwen VL
-            # Qwen Edit Inpaint Pipeline ONLY accepts a single base image. 
-            # Reference images are not officially supported by this specific Diffusers pipeline.
-            if ref_img:
-                print(f"Warning: Reference image provided for edit step {i+1}, but QwenImageEditInpaintPipeline does not support them. It will be ignored.")
+        # Qwen-Image-Edit-Plus Official Diffusers Generation Call
+        output = pipe(
+            image=images_list,
+            prompt=master_prompt,
+            negative_prompt=" ",
+            num_inference_steps=20, 
+            true_cfg_scale=5.0
+        ).images[0]
 
-            # Qwen-Image-Edit Official Diffusers Generation Call
-            output = pipe(
-                image=current_image,
-                mask_image=processed_mask,
-                prompt=prompt,
-                negative_prompt=" ",
-                strength=1.0,           # Full replacement of the masked area
-                num_inference_steps=20, # Standard steps for Qwen Edit
-                true_cfg_scale=5.0      # Qwen uses true_cfg_scale for classifier-free guidance
-            ).images[0]
+        # Combine all masks into a single master mask for compositing
+        combined_mask = Image.new("L", current_image.size, 0)
+        white = Image.new("L", current_image.size, 255)
+        for m in masks_for_composite:
+            combined_mask = Image.composite(white, combined_mask, m)
 
-            # --- Pristine Compositing ---
-            # Even though FLUX generates the whole image, we stitch the edited portion back onto 
-            # the original using the *processed_mask* (dilated and feathered).
-            # This ensures the generated shadows/blending zones are preserved while 
-            # keeping the rest of the background 100% untouched.
-            output = output.resize(current_image.size, Image.Resampling.LANCZOS)
-            current_image = Image.composite(output, current_image, processed_mask)
+        # Dilate and blur the combined mask for a soft, global transition
+        # This keeps the unedited background pristine while letting Qwen perfectly blend the edited zones
+        processed_mask = combined_mask.copy()
+        for _ in range(20):
+            processed_mask = processed_mask.filter(ImageFilter.MaxFilter(3))
+        processed_mask = processed_mask.filter(ImageFilter.GaussianBlur(radius=30))
+        
+        output = output.resize(current_image.size, Image.Resampling.LANCZOS)
+        final_output = Image.composite(output, current_image, processed_mask)
 
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=f"Error during edit step {i+1}: {str(e)}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error during edit generation: {str(e)}")
 
-    # Return final image
     out_byte_arr = io.BytesIO()
-    current_image.save(out_byte_arr, format='PNG')
+    final_output.save(out_byte_arr, format='PNG')
     out_byte_arr = out_byte_arr.getvalue()
 
     return Response(content=out_byte_arr, media_type="image/png")
